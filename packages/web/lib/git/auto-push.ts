@@ -13,6 +13,7 @@ import {
   clearPushFailureMessages,
   createPushFailedMessage,
 } from "@/lib/db/git-messages"
+import { logGitPushError } from "@/lib/db/activity-log"
 
 /** Client-notification payload for a push that advanced the remote. */
 export interface PushInfo {
@@ -64,7 +65,8 @@ function isRetryablePushError(err: unknown): boolean {
  *   non-fast-forward rejections are not retried since a second identical
  *   attempt can't fix either;
  * - on a failed push (including a retry that also failed), records ONE
- *   deduped "Push failed" message;
+ *   deduped "Push failed" chat message AND a "git_push_failed" ActivityLog
+ *   row (see {@link logGitPushError}) for aggregate/admin visibility;
  * - on a push that advances the remote, clears any stale failure and returns the
  *   {@link PushInfo} so a watching client can raise a notification.
  *
@@ -105,27 +107,27 @@ export async function autoPushChat(params: {
     // `--porcelain` tells us whether the remote ref actually advanced.
     const attemptPush = () => git.push(repoPath, token, pushOptions)
 
+    // Record a push we're giving up on: a deduped chat message (as before)
+    // plus an ActivityLog row for aggregate/admin visibility, same pattern as
+    // logLlmProviderError. Called once we've truly given up — not per
+    // attempt — so a blip that resolves on retry never shows up here.
+    const giveUp = async (err: unknown) => {
+      const message = err instanceof Error ? err.message : "Unknown error"
+      await createPushFailedMessage(chatId, message)
+      logGitPushError({ userId, chatId, branch, error: message })
+      return null
+    }
+
     let result
     try {
       result = await attemptPush()
     } catch (err) {
-      if (!isRetryablePushError(err)) {
-        // Deduped so concurrent finalizers don't spam identical failures.
-        await createPushFailedMessage(
-          chatId,
-          err instanceof Error ? err.message : "Unknown error"
-        )
-        return null
-      }
+      if (!isRetryablePushError(err)) return await giveUp(err)
       await sleep(PUSH_RETRY_DELAY_MS)
       try {
         result = await attemptPush()
       } catch (retryErr) {
-        await createPushFailedMessage(
-          chatId,
-          retryErr instanceof Error ? retryErr.message : "Unknown error"
-        )
-        return null
+        return await giveUp(retryErr)
       }
     }
 

@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 const {
   push,
   findFirst,
+  activityLogCreate,
   isInConflictState,
   getUserPushOptions,
   createPushFailedMessage,
@@ -13,13 +14,16 @@ const {
 } = vi.hoisted(() => ({
   push: vi.fn(),
   findFirst: vi.fn(),
+  activityLogCreate: vi.fn(),
   isInConflictState: vi.fn(),
   getUserPushOptions: vi.fn(),
   createPushFailedMessage: vi.fn(),
   clearPushFailureMessages: vi.fn(),
 }))
 
-vi.mock("@/lib/db/prisma", () => ({ prisma: { account: { findFirst } } }))
+vi.mock("@/lib/db/prisma", () => ({
+  prisma: { account: { findFirst }, activityLog: { create: activityLogCreate } },
+}))
 vi.mock("@/lib/git/sandbox-git-ops", () => ({ isInConflictState }))
 vi.mock("@/lib/git/push-options", () => ({ getUserPushOptions }))
 vi.mock("@/lib/db/git-messages", () => ({ createPushFailedMessage, clearPushFailureMessages }))
@@ -50,6 +54,7 @@ const baseParams = {
 beforeEach(() => {
   push.mockReset()
   findFirst.mockReset().mockResolvedValue({ access_token: "tok" })
+  activityLogCreate.mockReset().mockResolvedValue({})
   isInConflictState.mockReset().mockResolvedValue(false)
   getUserPushOptions.mockReset().mockResolvedValue({ noVerify: true })
   createPushFailedMessage.mockReset()
@@ -69,10 +74,11 @@ describe("autoPushChat retry", () => {
 
     expect(push).toHaveBeenCalledTimes(2)
     expect(createPushFailedMessage).not.toHaveBeenCalled()
+    expect(activityLogCreate).not.toHaveBeenCalled()
     expect(result).toEqual(expect.objectContaining({ branch: "feature" }))
   })
 
-  it("records one failure message when both attempts fail transiently", async () => {
+  it("records one failure message and one git_push_failed event when both attempts fail transiently", async () => {
     push
       .mockRejectedValueOnce(new GitError("blip 1", "git push", 1, "unable to access repo"))
       .mockRejectedValueOnce(new GitError("blip 2", "git push", 1, "connection timed out"))
@@ -82,20 +88,32 @@ describe("autoPushChat retry", () => {
     expect(push).toHaveBeenCalledTimes(2)
     expect(createPushFailedMessage).toHaveBeenCalledTimes(1)
     expect(createPushFailedMessage).toHaveBeenCalledWith("chat-1", "blip 2")
+    expect(activityLogCreate).toHaveBeenCalledTimes(1)
+    expect(activityLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: "user-1",
+        action: "git_push_failed",
+        metadata: expect.objectContaining({ chatId: "chat-1", branch: "feature", message: "blip 2" }),
+      }),
+    })
     expect(result).toBeNull()
   })
 
-  it("does not retry an auth failure", async () => {
+  it("does not retry an auth failure, but still logs it once", async () => {
     push.mockRejectedValueOnce(new GitAuthError("git push", "authentication failed"))
 
     const result = await autoPushChat(baseParams)
 
     expect(push).toHaveBeenCalledTimes(1)
     expect(createPushFailedMessage).toHaveBeenCalledTimes(1)
+    expect(activityLogCreate).toHaveBeenCalledTimes(1)
+    expect(activityLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: "git_push_failed" }),
+    })
     expect(result).toBeNull()
   })
 
-  it("does not retry a non-fast-forward rejection", async () => {
+  it("does not retry a non-fast-forward rejection, but still logs it once", async () => {
     push.mockRejectedValueOnce(
       new GitError(
         "rejected",
@@ -109,6 +127,7 @@ describe("autoPushChat retry", () => {
 
     expect(push).toHaveBeenCalledTimes(1)
     expect(createPushFailedMessage).toHaveBeenCalledTimes(1)
+    expect(activityLogCreate).toHaveBeenCalledTimes(1)
     expect(result).toBeNull()
   })
 })
