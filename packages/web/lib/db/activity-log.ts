@@ -29,6 +29,12 @@ export type ActivityAction =
   // `updatedBy`/`updatedAt`; this is what makes the change show up in the
   // Activity feed alongside everything else an admin does.
   | "provider_pricing_updated"
+  // autoPushChat gave up on a turn's push (including its one inline retry).
+  // The chat already gets a "Push failed" message with a force-push action;
+  // this is what makes the failure visible in aggregate (is one repo/branch
+  // failing repeatedly? is this widespread right now?) instead of only ever
+  // being seen one chat at a time.
+  | "git_push_failed"
 
 /**
  * Metadata types for different actions
@@ -50,6 +56,9 @@ export type ActivityMetadata = {
   message?: string
   /** Scheduled-job run id, when the failure came from a scheduled run. */
   jobRunId?: string
+  // git_push_failed fields:
+  /** The branch autoPushChat was pushing to. */
+  branch?: string
   [key: string]: unknown
 }
 
@@ -158,4 +167,47 @@ export function logLlmProviderError(ctx: LlmProviderErrorContext): void {
 
   console.error("[llm-provider-error]", JSON.stringify({ userId: ctx.userId, ...metadata }))
   logActivityAsync(ctx.userId, "llm_provider_error", metadata)
+}
+
+/** Cap the error string we persist/print — git error output can be verbose. */
+const GIT_PUSH_ERROR_MSG_MAX = 500
+
+export interface GitPushErrorContext {
+  userId: string
+  chatId: string
+  branch: string
+  /** The user-facing error string — the same text shown in the chat's "Push failed" message. */
+  error: string
+}
+
+/**
+ * Record a git push failure for observability, mirroring {@link logLlmProviderError}.
+ *
+ * Motivation: today a failed auto-push is only ever visible one chat at a
+ * time, as a "Push failed" message the user has to notice. This gives the
+ * same failure durable, aggregate visibility (is one repo/branch failing
+ * repeatedly? is this widespread right now, e.g. a GitHub outage?) via:
+ *
+ *   1. A structured `console.error("[git-push-error]", …)` line — immediate,
+ *      greppable visibility in the server/Vercel logs.
+ *   2. An ActivityLog row (action "git_push_failed") — durable and queryable
+ *      in the admin activity view, filterable by action.
+ *
+ * Called after autoPushChat has exhausted its retry — not on every attempt —
+ * so a transient blip that resolves on retry never shows up here.
+ */
+export function logGitPushError(ctx: GitPushErrorContext): void {
+  const message =
+    ctx.error.length > GIT_PUSH_ERROR_MSG_MAX
+      ? `${ctx.error.slice(0, GIT_PUSH_ERROR_MSG_MAX)}…`
+      : ctx.error
+
+  const metadata: ActivityMetadata = {
+    chatId: ctx.chatId,
+    branch: ctx.branch,
+    message,
+  }
+
+  console.error("[git-push-error]", JSON.stringify({ userId: ctx.userId, ...metadata }))
+  logActivityAsync(ctx.userId, "git_push_failed", metadata)
 }

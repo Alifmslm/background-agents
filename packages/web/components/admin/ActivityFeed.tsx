@@ -17,6 +17,7 @@ import {
   Cpu,
   Calendar,
   AlertTriangle,
+  GitBranch,
 } from "lucide-react"
 
 interface Activity {
@@ -67,6 +68,7 @@ const ACTION_CONFIG: Record<
   admin_promoted: { icon: ShieldCheck, label: "promoted user to admin", color: "text-green-600" },
   admin_demoted: { icon: ShieldOff, label: "removed admin status", color: "text-red-600" },
   llm_provider_error: { icon: AlertTriangle, label: "hit an LLM provider error", color: "text-red-600" },
+  git_push_failed: { icon: GitBranch, label: "failed to push commits", color: "text-red-600" },
 }
 
 const ACTION_LABELS: Record<string, string> = {
@@ -82,6 +84,7 @@ const ACTION_LABELS: Record<string, string> = {
   sandbox_deleted: "Sandbox Deleted",
   daily_limit_reached: "Daily Limit Reached",
   llm_provider_error: "LLM Provider Error",
+  git_push_failed: "Push Failed",
 }
 
 function ActivityItem({ activity }: { activity: Activity }) {
@@ -99,6 +102,8 @@ function ActivityItem({ activity }: { activity: Activity }) {
   // llm_provider_error carries the failure category + the raw error text.
   const errorCategory = metadata?.category
   const errorMessage = metadata?.message
+  // git_push_failed carries the branch that failed to push.
+  const branch = metadata?.branch
 
   return (
     <div className="flex items-start gap-3 py-3">
@@ -117,7 +122,7 @@ function ActivityItem({ activity }: { activity: Activity }) {
             <span className="text-muted-foreground"> - {details}</span>
           )}
         </p>
-        {(agent || model || errorCategory) && (
+        {(agent || model || errorCategory || branch) && (
           <div className="mt-1 flex flex-wrap gap-2">
             {agent && (
               <span className="inline-flex items-center gap-1 rounded bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
@@ -129,6 +134,12 @@ function ActivityItem({ activity }: { activity: Activity }) {
               <span className="inline-flex items-center gap-1 rounded bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
                 <Cpu className="h-3 w-3" />
                 {model}
+              </span>
+            )}
+            {branch && (
+              <span className="inline-flex items-center gap-1 rounded bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
+                <GitBranch className="h-3 w-3" />
+                {branch}
               </span>
             )}
             {errorCategory && (

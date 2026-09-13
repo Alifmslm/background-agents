@@ -7,7 +7,7 @@ const { activityLog } = vi.hoisted(() => ({
 }))
 vi.mock("@/lib/db/prisma", () => ({ prisma: { activityLog } }))
 
-import { logLlmProviderError } from "./activity-log"
+import { logLlmProviderError, logGitPushError } from "./activity-log"
 
 // logActivityAsync is fire-and-forget; flush the microtask queue so the
 // create() call has run before we assert.
@@ -70,5 +70,41 @@ describe("logLlmProviderError", () => {
     expect(activityLog.create).toHaveBeenCalledTimes(1)
     const { data } = activityLog.create.mock.calls[0][0]
     expect(data.metadata.category).toBe("auth")
+  })
+})
+
+describe("logGitPushError", () => {
+  it("records a push failure with chat and branch context", async () => {
+    logGitPushError({
+      userId: "u1",
+      chatId: "c1",
+      branch: "feature/foo",
+      error: "unable to access 'https://github.com/x/y.git': Could not resolve host",
+    })
+    await flush()
+
+    expect(activityLog.create).toHaveBeenCalledTimes(1)
+    const { data } = activityLog.create.mock.calls[0][0]
+    expect(data.userId).toBe("u1")
+    expect(data.action).toBe("git_push_failed")
+    expect(data.metadata).toMatchObject({
+      chatId: "c1",
+      branch: "feature/foo",
+    })
+    expect(data.metadata.message).toContain("Could not resolve host")
+  })
+
+  it("truncates very long error output", async () => {
+    logGitPushError({
+      userId: "u1",
+      chatId: "c1",
+      branch: "main",
+      error: "x".repeat(1000),
+    })
+    await flush()
+
+    const { data } = activityLog.create.mock.calls[0][0]
+    expect(data.metadata.message).toHaveLength(501) // 500 chars + the "…" ellipsis
+    expect(data.metadata.message.endsWith("…")).toBe(true)
   })
 })
