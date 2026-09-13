@@ -1,4 +1,11 @@
-import { createSandboxGit, type SandboxLike } from "@background-agents/sandbox-git"
+import {
+  createSandboxGit,
+  type SandboxLike,
+  GitAuthError,
+  GitNotFoundError,
+  GitError,
+  isNonFastForwardError,
+} from "@background-agents/sandbox-git"
 import { prisma } from "@/lib/db/prisma"
 import { getUserPushOptions } from "@/lib/git/push-options"
 import { isInConflictState } from "@/lib/git/sandbox-git-ops"
@@ -15,6 +22,34 @@ export interface PushInfo {
 }
 
 /**
+ * Fixed, short delay before the single inline retry (see {@link isRetryablePushError}).
+ * autoPushChat runs inline before the caller releases the chat from "running"
+ * (and, on the SSE path, before the "turn complete" event is sent), so this is
+ * deliberately a small fixed delay rather than exponential backoff — it must
+ * not meaningfully hold up the UI. Failures that survive this one retry are
+ * left to a later user turn or a manual force-push, same as before.
+ */
+const PUSH_RETRY_DELAY_MS = 750
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Whether a push failure is worth the one bounded retry above.
+ *
+ * Auth failures need the user to relink GitHub, and non-fast-forward
+ * rejections mean the remote has genuinely diverged — retrying an identical
+ * push cannot fix either, so only unclassified failures (network blips,
+ * GitHub 5xx responses, timeouts) are retried.
+ */
+function isRetryablePushError(err: unknown): boolean {
+  if (err instanceof GitAuthError || err instanceof GitNotFoundError) return false
+  const output = err instanceof GitError ? err.output : err instanceof Error ? err.message : ""
+  return !isNonFastForwardError(output)
+}
+
+/**
  * Auto-push a completed turn to its remote branch, and reconcile the chat's git
  * messages.
  *
@@ -24,7 +59,12 @@ export interface PushInfo {
  * identical no matter who detected completion first:
  *
  * - skips while a merge/rebase is in progress (mid-conflict HEAD is partial);
- * - on a failed push, records ONE deduped "Push failed" message;
+ * - retries once, after a short fixed delay, when the failure looks transient
+ *   (see {@link isRetryablePushError}) — auth failures and genuine
+ *   non-fast-forward rejections are not retried since a second identical
+ *   attempt can't fix either;
+ * - on a failed push (including a retry that also failed), records ONE
+ *   deduped "Push failed" message;
  * - on a push that advances the remote, clears any stale failure and returns the
  *   {@link PushInfo} so a watching client can raise a notification.
  *
@@ -58,21 +98,35 @@ export async function autoPushChat(params: {
       select: { access_token: true },
     })
     if (!account?.access_token) return null
+    const token = account.access_token
 
     const git = createSandboxGit(sandbox)
     const pushOptions = await getUserPushOptions(userId)
+    // `--porcelain` tells us whether the remote ref actually advanced.
+    const attemptPush = () => git.push(repoPath, token, pushOptions)
 
     let result
     try {
-      // `--porcelain` tells us whether the remote ref actually advanced.
-      result = await git.push(repoPath, account.access_token, pushOptions)
+      result = await attemptPush()
     } catch (err) {
-      // Deduped so concurrent finalizers don't spam identical failures.
-      await createPushFailedMessage(
-        chatId,
-        err instanceof Error ? err.message : "Unknown error"
-      )
-      return null
+      if (!isRetryablePushError(err)) {
+        // Deduped so concurrent finalizers don't spam identical failures.
+        await createPushFailedMessage(
+          chatId,
+          err instanceof Error ? err.message : "Unknown error"
+        )
+        return null
+      }
+      await sleep(PUSH_RETRY_DELAY_MS)
+      try {
+        result = await attemptPush()
+      } catch (retryErr) {
+        await createPushFailedMessage(
+          chatId,
+          retryErr instanceof Error ? retryErr.message : "Unknown error"
+        )
+        return null
+      }
     }
 
     if (!result.updated) return null // e.g. "Everything up-to-date"
