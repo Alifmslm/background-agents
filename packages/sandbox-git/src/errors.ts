@@ -64,6 +64,23 @@ export function isNotFoundError(output: string): boolean {
 }
 
 /**
+ * Check if output indicates a push was rejected because the remote has
+ * genuinely diverged (non-fast-forward). Retrying the identical push can't
+ * fix this — it needs an actual merge/rebase or an explicit force-push —
+ * so callers use this to decide what NOT to retry automatically.
+ */
+export function isNonFastForwardError(output: string): boolean {
+  const lower = output.toLowerCase()
+  return (
+    lower.includes("[rejected]") ||
+    lower.includes("non-fast-forward") ||
+    lower.includes("fetch first") ||
+    lower.includes("stale info") ||
+    lower.includes("updates were rejected")
+  )
+}
+
+/**
  * Create appropriate error from git command failure
  */
 export function createGitError(

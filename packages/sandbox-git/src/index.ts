@@ -39,6 +39,7 @@ export {
   GitNotFoundError,
   isAuthError,
   isNotFoundError,
+  isNonFastForwardError,
   createGitError,
 } from "./errors"
 
