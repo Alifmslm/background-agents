@@ -9,6 +9,7 @@
 import { prisma } from "@/lib/db/prisma"
 import { refreshCodexCredentialForUser } from "@/lib/server/codex-credentials"
 
+// maxDuration configures the timeout for this Vercel function.
 export const maxDuration = 300
 
 type RefreshOutcome = Awaited<ReturnType<typeof refreshCodexCredentialForUser>>

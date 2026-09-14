@@ -15,7 +15,8 @@ import { meterAssistantTurn } from "@/lib/server/token-metering"
 import { autoPushChat, type PushInfo } from "@/lib/git/auto-push"
 import { persistAgentSnapshot } from "./_lib/persist-snapshot"
 
-// Allow longer streaming connections (5 minutes max)
+// maxDuration configures the timeout for this Vercel function. Allow longer
+// streaming connections (5 minutes max).
 export const maxDuration = 300
 
 const BACKEND_POLL_INTERVAL = 500

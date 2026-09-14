@@ -10,8 +10,9 @@ import {
   refreshResultToResponse,
 } from "@/lib/server/refresh-claude-credentials"
 
-// Mirrors the cron route's budget — the first ccauth run in Daytona can take a
-// few minutes before the snapshot is cached.
+// maxDuration configures the timeout for this Vercel function. Mirrors the
+// cron route's budget — the first ccauth run in Daytona can take a few
+// minutes before the snapshot is cached.
 export const maxDuration = 300
 
 /**

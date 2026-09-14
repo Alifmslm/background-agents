@@ -160,8 +160,9 @@ export function CodexConnectionRow({
     try {
       const res = await fetch("/api/user/codex-auth", { method: "POST" })
       const data = await res.json()
-      // The POST can take ~30s (sandbox cold start, maxDuration 60) - the
-      // user may have closed Settings before it resolves. Bail before
+      // The POST can take ~30s (sandbox cold start, maxDuration 60 for the
+      // Vercel function) - the user may have closed Settings before it
+      // resolves. Bail before
       // touching state or starting the poll interval; the mount effect's
       // cleanup already ran and cleared nothing because pollRef was still
       // null at that point.

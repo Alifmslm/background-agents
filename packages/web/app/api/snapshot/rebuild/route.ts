@@ -1,10 +1,11 @@
 import { Daytona } from "@daytonaio/sdk"
 import { rebuildSnapshot } from "@background-agents/sandbox-image"
 
-// Manual, on-demand zero-downtime snapshot rebuild. Not on a cron schedule —
-// trigger it yourself when you need a fresh image. It runs two serial image
-// builds (build temp → swap → rebuild canonical), so it can take many minutes;
-// for a full production rebuild prefer `npm run build:snapshot` (no timeout).
+// maxDuration configures the timeout for this Vercel function. Manual,
+// on-demand zero-downtime snapshot rebuild. Not on a cron schedule — trigger
+// it yourself when you need a fresh image. It runs two serial image builds
+// (build temp → swap → rebuild canonical), so it can take many minutes; for a
+// full production rebuild prefer `npm run build:snapshot` (no timeout).
 export const maxDuration = 300
 
 export async function POST(req: Request) {

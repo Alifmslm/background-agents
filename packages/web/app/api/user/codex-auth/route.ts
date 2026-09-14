@@ -11,7 +11,8 @@ import {
 } from "@/lib/server/codex-login"
 import { disconnectCodex, readCodexCredential } from "@/lib/server/codex-credentials"
 
-// The login sandbox takes a few seconds to come up and print the code.
+// maxDuration configures the timeout for this Vercel function. The login
+// sandbox takes a few seconds to come up and print the code.
 export const maxDuration = 60
 
 export async function POST(): Promise<Response> {

@@ -32,7 +32,7 @@ import { buildAgentHistory } from "./_lib/history"
 import { buildAgentEnv } from "./_lib/agent-env"
 import { persistTurn } from "./_lib/persist-turn"
 
-
+// maxDuration configures the timeout for this Vercel function.
 export const maxDuration = 300
 
 /**

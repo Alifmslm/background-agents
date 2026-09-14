@@ -3,8 +3,9 @@ import {
   refreshResultToResponse,
 } from "@/lib/server/refresh-claude-credentials"
 
-// Daytona's first build of the ccauth image can take a few minutes; after the
-// snapshot is cached, subsequent runs are fast. 300s fits Pro plan limits;
+// maxDuration configures the timeout for this Vercel function. Daytona's
+// first build of the ccauth image can take a few minutes; after the snapshot
+// is cached, subsequent runs are fast. 300s fits Vercel's Pro plan limits;
 // pre-warm the cache via `npm run seed:ccauth` to avoid cold-start risk.
 export const maxDuration = 300
 
