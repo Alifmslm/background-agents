@@ -21,13 +21,8 @@ import { PATHS } from "@background-agents/common"
  * returned nothing for exactly that reason (see the `list-servers` action).
  */
 
-/** Recorded recipes, one per port. Survives sandbox stop/start with the disk. */
-const RECORD_FILE = `${PATHS.SANDBOX_HOME}/.dev-servers.tsv`
 /** Per-port launch logs, so a failed restore can say why. */
 const LOG_DIR = `${PATHS.SANDBOX_HOME}/.dev-server-logs`
-
-/** Separates the socket tables from the recorded recipes in one round trip. */
-const RECORDED_MARKER = "===RECORDED==="
 
 /** Only ports in this range are treated as dev servers (matches list-servers). */
 const MIN_PORT = 3000
@@ -70,14 +65,8 @@ export type RestoreResult =
 // Listing + parsing
 // =============================================================================
 
-/**
- * One command that answers both "what is listening?" and "what do we already
- * know how to restart?", so the 5s poll stays a single round trip.
- */
-export const LIST_SERVERS_COMMAND =
-  `cat /proc/net/tcp /proc/net/tcp6 2>/dev/null; ` +
-  `echo ${quote(RECORDED_MARKER)}; ` +
-  `cat ${quote(RECORD_FILE)} 2>/dev/null || true`
+/** Dump the kernel's socket tables; {@link parseListeningSockets} reads them. */
+export const LIST_SERVERS_COMMAND = `cat /proc/net/tcp /proc/net/tcp6 2>/dev/null || true`
 
 /**
  * Parse the LISTEN rows of /proc/net/tcp[6].
@@ -141,17 +130,6 @@ export function parseRecipes(tsv: string): Map<number, DevServerRecipe> {
   return out
 }
 
-/** Split the combined {@link LIST_SERVERS_COMMAND} output on the marker. */
-export function splitListOutput(raw: string): {
-  sockets: ListeningSocket[]
-  recipes: Map<number, DevServerRecipe>
-} {
-  const idx = raw.indexOf(RECORDED_MARKER)
-  const tcp = idx === -1 ? raw : raw.slice(0, idx)
-  const tsv = idx === -1 ? "" : raw.slice(idx + RECORDED_MARKER.length)
-  return { sockets: parseListeningSockets(tcp), recipes: parseRecipes(tsv) }
-}
-
 function decodeBase64(value: string | undefined): string {
   if (!value) return ""
   try {
@@ -179,8 +157,10 @@ function parseEnvPairs(raw: string): Record<string, string> {
 
 /**
  * Shell script that attributes each `port:inode` pair to a restartable command
- * and appends it to {@link RECORD_FILE}. Ports already recorded are skipped, so
- * this is a no-op once a server has been seen.
+ * and prints one TSV line per port for {@link parseRecipes}. Nothing is written
+ * inside the sandbox — the result is persisted to the chat row, so it outlives
+ * the sandbox being stopped and deleted. Callers pass only ports they have not
+ * recorded yet, so this is a no-op once a server has been seen.
  *
  * Attribution walks UP from the process holding the socket: the listener itself
  * is usually something like `next-server (v15)`, which nothing can re-run. The
@@ -196,8 +176,6 @@ export function buildRecordCommand(sockets: ListeningSocket[]): string {
   const envPattern = `^(${ENV_ALLOWLIST.join("|")})=`
   return [
     `set -u`,
-    `REC=${quote(RECORD_FILE)}`,
-    `touch "$REC" 2>/dev/null || exit 0`,
     // Commands we must never record: re-running them would restart the agent or
     // a login shell, not the dev server. An absurdly long command line is also
     // rejected — that shape is an agent tool shell, not a server launcher.
@@ -239,7 +217,6 @@ export function buildRecordCommand(sockets: ListeningSocket[]): string {
     `for pair in ${pairs}; do`,
     `  port=\${pair%%:*}`,
     `  inode=\${pair#*:}`,
-    `  grep -q "^\${port}\t" "$REC" 2>/dev/null && continue`,
     // -lname matches the symlink TARGET, so one find replaces a readlink fork
     // per open fd in the sandbox. Its pattern is a GLOB, so the brackets of
     // "socket:[123]" must be escaped — unescaped they are a character class,
@@ -272,25 +249,33 @@ export function buildRecordCommand(sockets: ListeningSocket[]): string {
     `  printf '%s\\t%s\\t%s\\t%s\\t%s\\n' "$port" "$cwd" \\`,
     `    "$(printf %s "$cand_cmd" | base64 -w0)" \\`,
     `    "$(printf %s "$envs" | base64 -w0)" \\`,
-    `    "$(printf %s "$chain" | base64 -w0)" >> "$REC"`,
+    `    "$(printf %s "$chain" | base64 -w0)"`,
     `done`,
   ].join("\n")
 }
 
 /**
- * Record any of `sockets` not attributed yet. Best-effort: a failure here must
+ * Attribute `sockets` to restartable commands. Best-effort: a failure here must
  * never break the poll that called it — it only means a later refresh finds no
- * recipe and falls back to asking the agent.
+ * recipe and falls back to asking the agent, so it resolves to no recipes
+ * rather than throwing.
  */
 export async function recordDevServers(
   sandbox: Sandbox,
   sockets: ListeningSocket[]
-): Promise<void> {
-  if (sockets.length === 0) return
+): Promise<Map<number, DevServerRecipe>> {
+  if (sockets.length === 0) return new Map()
   try {
-    await sandbox.process.executeCommand(buildRecordCommand(sockets), undefined, undefined, 20)
+    const res = await sandbox.process.executeCommand(
+      buildRecordCommand(sockets),
+      undefined,
+      undefined,
+      20
+    )
+    return parseRecipes(res.result ?? "")
   } catch (error) {
     console.warn("[dev-servers] Failed to record dev servers:", error)
+    return new Map()
   }
 }
 
@@ -350,20 +335,6 @@ export function classifyListenRows(rows: string): PortStatus {
   return addresses.every((addr) => LOOPBACK_HEX.has(addr)) ? "loopback-only" : "ready"
 }
 
-/** Read the recipe recorded for `port`, if any. */
-async function readRecipe(
-  sandbox: Sandbox,
-  port: number
-): Promise<DevServerRecipe | null> {
-  const res = await sandbox.process.executeCommand(
-    `cat ${quote(RECORD_FILE)} 2>/dev/null || true`,
-    undefined,
-    undefined,
-    10
-  )
-  return parseRecipes(res.result ?? "").get(port) ?? null
-}
-
 /**
  * Re-run the recorded command for `port` and wait for it to listen.
  *
@@ -408,9 +379,16 @@ export function buildLaunchCommand(recipe: DevServerRecipe): string {
  * cold Next build routinely outlasts this window) must not read as a failure.
  */
 export function buildWaitCommand(port: number, pid: string | null): string {
+  // Waiting for the socket alone is not enough. Vite and Next bind the port
+  // almost immediately and only then pre-bundle dependencies, so a bind-only
+  // check reports "ready" while the server still can't serve anything — the
+  // panel then swaps in an iframe that renders blank for as long as the build
+  // takes. Ask for an actual HTTP response instead; curl is in the image.
+  const serves =
+    `curl -s -o /dev/null --max-time 3 http://127.0.0.1:${port}/ 2>/dev/null`
   return (
     `i=0; while [ $i -lt ${START_TIMEOUT_SECONDS} ]; do ` +
-    `${listenTest(port)} && { echo READY; exit 0; }; ` +
+    `${listenTest(port)} && ${serves} && { echo READY; exit 0; }; ` +
     `sleep 1; i=$((i + 1)); done; ` +
     (pid ? `[ -d /proc/${pid} ] && echo STARTING || echo DEAD` : `echo DEAD`)
   )
@@ -418,11 +396,9 @@ export function buildWaitCommand(port: number, pid: string | null): string {
 
 export async function restoreDevServer(
   sandbox: Sandbox,
-  port: number
+  recipe: DevServerRecipe
 ): Promise<RestoreResult> {
-  const recipe = await readRecipe(sandbox, port)
-  if (!recipe) return { state: "no-recipe" }
-
+  const port = recipe.port
   console.log(
     `[dev-servers] Restoring port ${port}: ${recipe.command} (cwd ${recipe.cwd})`
   )

@@ -184,6 +184,13 @@ model Chat {
   // { "KEY1": "encrypted_value1", ... }
   environmentVariables Json?
 
+  // JSONB map of port -> how to restart that dev server, recorded from the
+  // sandbox's process table while the server was running:
+  // { "5173": { command, cwd, env, chain, sandboxId, recordedAt } }
+  // Lives on the chat, not the sandbox, so it survives the sandbox being
+  // stopped AND deleted (Daytona auto-deletes 4 days after a stop).
+  devServers Json?
+
   // Relations
   user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages   Message[]

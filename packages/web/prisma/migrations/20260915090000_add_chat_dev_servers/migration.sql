@@ -1,0 +1,16 @@
+-- Per-chat record of how to restart each dev server, keyed by port:
+--   { "5173": { command, cwd, env, chain, sandboxId, recordedAt } }
+--
+-- Recorded from the sandbox's process table while a server is running, and
+-- replayed when the user refreshes the preview pane after the sandbox has been
+-- stopped. It has to be stored somewhere ahead of time because the command can
+-- only be discovered while the server is alive, which is exactly when it isn't
+-- needed.
+--
+-- On the chat rather than the sandbox so it outlives the sandbox: Daytona
+-- auto-deletes a sandbox 4 days after it stops, and the chat carries on with a
+-- freshly created one.
+--
+-- Additive and nullable: existing chats read as "nothing recorded", which is
+-- the same behaviour they have today.
+ALTER TABLE "Chat" ADD COLUMN "devServers" JSONB;
