@@ -4,6 +4,7 @@ import { getSandboxOrExpired, passiveReadGate } from "@/lib/sandbox-lifecycle"
 import { escapeShell } from "@background-agents/sdk"
 import { PATHS } from "@background-agents/common"
 import { IMAGE_MIME_TYPES } from "@/lib/file-preview/types"
+import { LIST_SERVERS_COMMAND, recordDevServers, splitListOutput } from "@/lib/dev-servers"
 import { internalError, badRequest, notFound, requireSandboxOwner } from "@/lib/db/api-helpers"
 
 export const maxDuration = 30
@@ -165,25 +166,23 @@ export async function POST(req: Request) {
         // here: those come from iproute2/net-tools, which are not installed in
         // the sandbox image, so a previous `ss`-based implementation silently
         // returned nothing and the preview never opened.
+        //
+        // The same round trip also returns the dev-server recipes recorded so
+        // far, so a port we have never attributed can be recorded while its
+        // process is still alive — that recording is the only thing that lets a
+        // refresh restart the server after the sandbox is stopped.
         const proc = await sandbox.process.executeCommand(
-          `cat /proc/net/tcp /proc/net/tcp6 2>/dev/null || true`,
+          LIST_SERVERS_COMMAND,
           undefined,
           undefined,
           10
         )
-        const ports = new Set<number>()
-        for (const line of (proc.result || "").split("\n")) {
-          // Columns: "sl local_address rem_address st ...". Skip the header
-          // (starts with "sl") and any blank lines.
-          const cols = line.trim().split(/\s+/)
-          if (cols.length < 4 || cols[0] === "sl") continue
-          // st === "0A" is TCP_LISTEN. local_address is "HEXIP:HEXPORT".
-          if (cols[3] !== "0A") continue
-          const hexPort = cols[1].split(":")[1]
-          const port = parseInt(hexPort, 16)
-          if (!isNaN(port) && port >= 3000 && port <= 9999) ports.add(port)
-        }
-        return Response.json({ ports: [...ports].sort((a, b) => a - b) })
+        const { sockets, recipes } = splitListOutput(proc.result || "")
+        await recordDevServers(
+          sandbox,
+          sockets.filter((s) => !recipes.has(s.port))
+        )
+        return Response.json({ ports: sockets.map((s) => s.port) })
       }
 
       default:
