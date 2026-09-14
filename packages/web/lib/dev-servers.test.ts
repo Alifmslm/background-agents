@@ -7,8 +7,10 @@ import {
   buildLaunchCommand,
   buildRecordCommand,
   buildWaitCommand,
+  classifyListenRows,
   parseListeningSockets,
   parseRecipes,
+  restoreArgSeparator,
   splitListOutput,
   type DevServerRecipe,
 } from "./dev-servers"
@@ -131,6 +133,60 @@ describe("buildRecordCommand", () => {
 
   it("is valid POSIX shell", () => {
     expectValidShell(buildRecordCommand(sockets))
+  })
+})
+
+describe("restoreArgSeparator", () => {
+  it("puts back the -- that npm strips from its own argv", () => {
+    // Observed in a node:22-bookworm container: `npm run dev -- --host 0.0.0.0
+    // --port 5173` reads back from /proc without the separator. Replaying it
+    // verbatim gives the flags to npm, so Vite starts bare, binds 127.0.0.1,
+    // and the preview proxy 404s while the port still looks "up".
+    expect(restoreArgSeparator("npm run dev --host 0.0.0.0 --port 5173")).toBe(
+      "npm run dev -- --host 0.0.0.0 --port 5173"
+    )
+  })
+
+  it("leaves a command with no script arguments alone", () => {
+    expect(restoreArgSeparator("npm run dev")).toBe("npm run dev")
+  })
+
+  it("is idempotent when the separator survived", () => {
+    expect(restoreArgSeparator("npm run dev -- --host")).toBe("npm run dev -- --host")
+  })
+
+  it("leaves other package managers alone, since they forward args directly", () => {
+    for (const cmd of ["yarn dev --host", "pnpm dev --host", "bun run dev --host"]) {
+      expect(restoreArgSeparator(cmd)).toBe(cmd)
+    }
+  })
+
+  it("leaves a plain command alone", () => {
+    expect(restoreArgSeparator("node server.js --port 3000")).toBe("node server.js --port 3000")
+  })
+})
+
+describe("classifyListenRows", () => {
+  const row = (addr: string) =>
+    `   0: ${addr}:1435 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1001        0 132411 1 ffff8`
+
+  it("treats a 0.0.0.0 bind as reachable", () => {
+    expect(classifyListenRows(row("00000000"))).toBe("ready")
+  })
+
+  it("flags a loopback-only bind rather than calling it ready", () => {
+    // Vite without --host binds ::1, which the preview proxy cannot reach — the
+    // port looks up, so the panel would otherwise embed a blank 404 iframe.
+    expect(classifyListenRows(row("00000000000000000000000001000000"))).toBe("loopback-only")
+    expect(classifyListenRows(row("0100007F"))).toBe("loopback-only")
+  })
+
+  it("is ready when any one bind is reachable", () => {
+    expect(classifyListenRows([row("0100007F"), row("00000000")].join("\n"))).toBe("ready")
+  })
+
+  it("reports down when nothing is listening", () => {
+    expect(classifyListenRows("")).toBe("down")
   })
 })
 

@@ -1,7 +1,7 @@
 import { Daytona } from "@daytonaio/sdk"
 import { ensureSandboxStarted } from "@/lib/sandbox"
 import { getSandboxOrExpired, passiveReadGate } from "@/lib/sandbox-lifecycle"
-import { isPortListening, restoreDevServer } from "@/lib/dev-servers"
+import { checkPort, restoreDevServer } from "@/lib/dev-servers"
 import { badRequest, serverConfigError, requireSandboxOwner } from "@/lib/db/api-helpers"
 
 // Restoring a dev server boots the sandbox and then waits for the port to come
@@ -26,6 +26,7 @@ export const maxDuration = 60
  *   200 { state: "ready" }                 — sandbox up, and port listening if asked
  *   200 { state: "server-down" }           — sandbox up, port dead, caller passive
  *   200 { state: "starting" }              — relaunched, alive, not listening yet
+ *   200 { state: "loopback-only" }         — listening on 127.0.0.1; the proxy can't reach it
  *   200 { state: "no-recipe" }             — port dead and we never recorded how to start it
  *   200 { state: "failed", log }           — replayed the command; it did not listen
  *   409 stopped · 410 expired
@@ -58,7 +59,11 @@ export async function POST(req: Request) {
   const port = typeof body.port === "number" ? body.port : null
   if (port === null) return Response.json({ state: "ready" })
 
-  if (await isPortListening(sandbox, port)) return Response.json({ state: "ready" })
+  const status = await checkPort(sandbox, port)
+  if (status === "ready") return Response.json({ state: "ready" })
+  // Listening, but on 127.0.0.1 only. Restarting it would just reproduce the
+  // same bind, so say what's wrong instead of replaying.
+  if (status === "loopback-only") return Response.json({ state: "loopback-only" })
 
   // The port is dead. Only an explicit user action may start processes; a
   // background poll just reports it so the panel can offer the button.

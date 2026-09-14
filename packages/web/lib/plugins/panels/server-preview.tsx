@@ -7,7 +7,7 @@ import { useSandboxResource, assertSandboxOk } from "@/lib/hooks/useSandboxResou
 
 /** Body of a successful /api/sandbox/state probe. See that route for the states. */
 interface ServerStateResponse {
-  state: "ready" | "server-down" | "starting" | "no-recipe" | "failed"
+  state: "ready" | "server-down" | "starting" | "loopback-only" | "no-recipe" | "failed"
   /** Tail of the dev server's launch log, present when state is "failed". */
   log?: string
 }
@@ -60,6 +60,19 @@ function ServerPreviewComponent({ item, scale = 1, sandboxId, explicitStart, onR
 
     if (data?.state === "server-down") {
       return <PanelState status="server-down" onRefresh={onRefresh} />
+    }
+    if (data?.state === "loopback-only") {
+      return (
+        <PanelState
+          status="error"
+          message={
+            `The dev server on port ${port} is listening on 127.0.0.1 only, so the ` +
+            `preview proxy can't reach it. Ask the agent to bind all interfaces — ` +
+            `for example \`--host 0.0.0.0\` for Vite, or \`-H 0.0.0.0\` for Next.`
+          }
+          onRefresh={onRefresh}
+        />
+      )
     }
     if (data?.state === "starting") {
       return (

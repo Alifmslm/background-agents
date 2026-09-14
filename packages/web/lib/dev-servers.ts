@@ -61,6 +61,8 @@ export type RestoreResult =
   | { state: "ready" }
   /** Relaunched and the process is alive, but it hasn't bound the port yet. */
   | { state: "starting" }
+  /** Listening, but only on 127.0.0.1 — the preview proxy cannot reach it. */
+  | { state: "loopback-only" }
   | { state: "no-recipe" }
   | { state: "failed"; log: string }
 
@@ -98,6 +100,26 @@ export function parseListeningSockets(procNetTcp: string): ListeningSocket[] {
   return [...byPort.values()].sort((a, b) => a.port - b.port)
 }
 
+/**
+ * Put back the `--` separator npm strips from its own argv.
+ *
+ * `npm run dev -- --host 0.0.0.0` shows up in /proc/<pid>/cmdline as
+ * `npm run dev --host 0.0.0.0`: npm rewrites argv and drops the separator.
+ * Replaying that verbatim hands `--host` to npm instead of to the script, so a
+ * Vite server comes back bound to 127.0.0.1 and the preview proxy 404s — a
+ * silent wrong result, since something *is* listening on the port.
+ *
+ * Only npm needs this; yarn, pnpm and bun forward trailing args without a
+ * separator. An argument that npm itself would own (`--silent`) is rare next to
+ * script flags, and misplacing one only passes an extra arg to the script.
+ */
+export function restoreArgSeparator(command: string): string {
+  // The negative lookahead keeps this idempotent: a separator that survived
+  // must not gain a second one.
+  const match = /^(npm\s+run(?:-script)?\s+[^\s-]\S*)\s+(?!--(?:\s|$))(-.*)$/.exec(command.trim())
+  return match ? `${match[1]} -- ${match[2]}` : command
+}
+
 /** Parse the TSV written by {@link buildRecordCommand}. */
 export function parseRecipes(tsv: string): Map<number, DevServerRecipe> {
   const out = new Map<number, DevServerRecipe>()
@@ -110,7 +132,7 @@ export function parseRecipes(tsv: string): Map<number, DevServerRecipe> {
     if (!command) continue
     out.set(port, {
       port,
-      command,
+      command: restoreArgSeparator(command),
       cwd: cwd || PATHS.PROJECT_DIR,
       env: parseEnvPairs(decodeBase64(envB64)),
       chain: decodeBase64(chainB64),
@@ -281,21 +303,51 @@ export async function recordDevServers(
  * formats those tables with single-space separators and uppercase hex, so the
  * port can be matched textually without re-parsing every row.
  */
+function portHex(port: number): string {
+  return port.toString(16).toUpperCase().padStart(4, "0")
+}
+
 function listenTest(port: number): string {
-  const hex = port.toString(16).toUpperCase().padStart(4, "0")
-  const pattern = `:${hex} [0-9A-F]+:[0-9A-F]+ 0A `
+  const pattern = `:${portHex(port)} [0-9A-F]+:[0-9A-F]+ 0A `
   return `grep -qE ${quote(pattern)} /proc/net/tcp /proc/net/tcp6 2>/dev/null`
 }
 
-/** Is anything listening on `port` right now? */
-export async function isPortListening(sandbox: Sandbox, port: number): Promise<boolean> {
+/** Hex `local_address` of the loopback interfaces, as /proc writes them. */
+const LOOPBACK_HEX = new Set(["0100007F", "00000000000000000000000001000000"])
+
+/** How usable a port is from outside the sandbox. */
+export type PortStatus = "down" | "loopback-only" | "ready"
+
+/**
+ * Classify what is listening on `port`.
+ *
+ * A bare "is something listening?" is not enough: a dev server bound to
+ * 127.0.0.1 (Vite's default without `--host`) satisfies it, but the preview
+ * proxy cannot reach it, so the panel would embed an iframe that renders the
+ * proxy's 404 as a blank page. Distinguishing that case lets the panel say what
+ * is actually wrong.
+ */
+export async function checkPort(sandbox: Sandbox, port: number): Promise<PortStatus> {
+  const hex = portHex(port)
   const res = await sandbox.process.executeCommand(
-    `${listenTest(port)} && echo UP || echo DOWN`,
+    `grep -hE ${quote(`:${hex} [0-9A-F]+:[0-9A-F]+ 0A `)} /proc/net/tcp /proc/net/tcp6 2>/dev/null || true`,
     undefined,
     undefined,
     10
   )
-  return (res.result ?? "").trim().endsWith("UP")
+  return classifyListenRows(res.result ?? "")
+}
+
+/** Classify the LISTEN rows for one port. Split out from {@link checkPort} so
+ *  the address handling is testable without a sandbox. */
+export function classifyListenRows(rows: string): PortStatus {
+  const addresses = rows
+    .split("\n")
+    .map((line) => line.trim().split(/\s+/)[1]?.split(":")[0])
+    .filter((addr): addr is string => Boolean(addr))
+
+  if (addresses.length === 0) return "down"
+  return addresses.every((addr) => LOOPBACK_HEX.has(addr)) ? "loopback-only" : "ready"
 }
 
 /** Read the recipe recorded for `port`, if any. */
@@ -396,7 +448,12 @@ export async function restoreDevServer(
   )
   const outcome = (waited.result ?? "").trim().split("\n").pop()?.trim() ?? ""
 
-  if (outcome === "READY") return { state: "ready" }
+  if (outcome === "READY") {
+    // It bound the port — but to which interface? A loopback-only bind is
+    // invisible to the proxy and would render as a blank iframe.
+    const status = await checkPort(sandbox, port)
+    return { state: status === "loopback-only" ? "loopback-only" : "ready" }
+  }
   if (outcome === "STARTING") return { state: "starting" }
 
   const tail = await sandbox.process.executeCommand(
