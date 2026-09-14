@@ -351,7 +351,7 @@ export function classifyListenRows(rows: string): PortStatus {
 }
 
 /** Read the recipe recorded for `port`, if any. */
-export async function readRecipe(
+async function readRecipe(
   sandbox: Sandbox,
   port: number
 ): Promise<DevServerRecipe | null> {
@@ -371,7 +371,7 @@ export async function readRecipe(
  * agent or by the user; replaying it on an explicit refresh grants nothing that
  * was not already there.
  */
-export function logPath(port: number): string {
+function logPath(port: number): string {
   return `${LOG_DIR}/${port}.log`
 }
 
