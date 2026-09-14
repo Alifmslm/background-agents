@@ -11,7 +11,6 @@ import {
   parseListeningSockets,
   parseRecipes,
   restoreArgSeparator,
-  splitListOutput,
   type DevServerRecipe,
 } from "./dev-servers"
 
@@ -87,33 +86,35 @@ describe("parseRecipes", () => {
   })
 })
 
-describe("splitListOutput", () => {
-  it("separates the socket tables from the recorded recipes", () => {
-    const raw = [
-      PROC_NET_TCP,
-      "===RECORDED===",
+describe("parseRecipes over the record script's stdout", () => {
+  it("reads the lines the attribution script prints", () => {
+    // buildRecordCommand prints rather than writing a file; the route persists
+    // what comes back to Chat.devServers.
+    const stdout = [
       ["3000", "/home/daytona/project", b64("npm run dev"), "", ""].join("\t"),
+      ["5173", "/home/daytona/app", b64("npm run dev -- --host"), b64("PORT=5173"), ""].join("\t"),
     ].join("\n")
 
-    const { sockets, recipes } = splitListOutput(raw)
-    expect(sockets.map((s) => s.port)).toEqual([3000])
+    const recipes = parseRecipes(stdout)
     expect(recipes.get(3000)?.command).toBe("npm run dev")
+    expect(recipes.get(5173)?.cwd).toBe("/home/daytona/app")
+    expect(recipes.get(5173)?.env).toEqual({ PORT: "5173" })
   })
 
-  it("handles a sandbox with no recipe file yet", () => {
-    const { sockets, recipes } = splitListOutput(`${PROC_NET_TCP}\n===RECORDED===\n`)
-    expect(sockets.map((s) => s.port)).toEqual([3000])
-    expect(recipes.size).toBe(0)
+  it("returns nothing when no port could be attributed", () => {
+    expect(parseRecipes("").size).toBe(0)
   })
 })
 
 describe("buildRecordCommand", () => {
   const sockets = [{ port: 3000, inode: "123456" }]
 
-  it("looks up already-recorded ports with a literal tab", () => {
-    // The TSV is tab-separated and grep's BRE does not understand "\t", so a
-    // backslash-t here would silently never match and every poll would re-record.
-    expect(buildRecordCommand(sockets)).toContain('grep -q "^${port}\t"')
+  it("prints tab-separated fields rather than writing inside the sandbox", () => {
+    // The result is persisted to Chat.devServers, so it has to come back on
+    // stdout in the shape parseRecipes expects.
+    const cmd = buildRecordCommand(sockets)
+    expect(cmd).toContain(`printf '%s\\t%s\\t%s\\t%s\\t%s\\n'`)
+    expect(cmd).not.toContain(".dev-servers.tsv")
   })
 
   it("escapes the brackets of the socket inode for find's glob", () => {

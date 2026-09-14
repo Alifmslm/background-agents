@@ -4,7 +4,8 @@ import { getSandboxOrExpired, passiveReadGate } from "@/lib/sandbox-lifecycle"
 import { escapeShell } from "@background-agents/sdk"
 import { PATHS } from "@background-agents/common"
 import { IMAGE_MIME_TYPES } from "@/lib/file-preview/types"
-import { LIST_SERVERS_COMMAND, recordDevServers, splitListOutput } from "@/lib/dev-servers"
+import { LIST_SERVERS_COMMAND, parseListeningSockets, recordDevServers } from "@/lib/dev-servers"
+import { readDevServers, saveDevServers } from "@/lib/db/dev-servers-store"
 import { internalError, badRequest, notFound, requireSandboxOwner } from "@/lib/db/api-helpers"
 
 // maxDuration configures the timeout for this Vercel function.
@@ -168,21 +169,23 @@ export async function POST(req: Request) {
         // the sandbox image, so a previous `ss`-based implementation silently
         // returned nothing and the preview never opened.
         //
-        // The same round trip also returns the dev-server recipes recorded so
-        // far, so a port we have never attributed can be recorded while its
-        // process is still alive — that recording is the only thing that lets a
-        // refresh restart the server after the sandbox is stopped.
+        // This poll is also the only chance to learn how each server was
+        // started: the command can only be read off a live process, but it is
+        // only needed once the sandbox has stopped and the processes are gone.
+        // So any port not already recorded is attributed now and persisted to
+        // the chat, which is what lets a later refresh restart it.
         const proc = await sandbox.process.executeCommand(
           LIST_SERVERS_COMMAND,
           undefined,
           undefined,
           10
         )
-        const { sockets, recipes } = splitListOutput(proc.result || "")
-        await recordDevServers(
-          sandbox,
-          sockets.filter((s) => !recipes.has(s.port))
-        )
+        const sockets = parseListeningSockets(proc.result || "")
+        const known = await readDevServers(sandboxId)
+        const unknown = sockets.filter((s) => !known.has(s.port))
+        if (unknown.length > 0) {
+          await saveDevServers(sandboxId, await recordDevServers(sandbox, unknown))
+        }
         return Response.json({ ports: sockets.map((s) => s.port) })
       }
 

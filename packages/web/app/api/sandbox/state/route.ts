@@ -2,6 +2,7 @@ import { Daytona } from "@daytonaio/sdk"
 import { ensureSandboxStarted } from "@/lib/sandbox"
 import { getSandboxOrExpired, passiveReadGate } from "@/lib/sandbox-lifecycle"
 import { checkPort, restoreDevServer } from "@/lib/dev-servers"
+import { readDevServers } from "@/lib/db/dev-servers-store"
 import { badRequest, serverConfigError, requireSandboxOwner } from "@/lib/db/api-helpers"
 
 // maxDuration configures the timeout for this Vercel function. Restoring a
@@ -70,5 +71,11 @@ export async function POST(req: Request) {
   // background poll just reports it so the panel can offer the button.
   if (!body.autoStart) return Response.json({ state: "server-down" })
 
-  return Response.json(await restoreDevServer(sandbox, port))
+  // Recipes live on the chat, so this still resolves for a sandbox that was
+  // deleted and recreated — the command is remembered even though the machine
+  // it was observed on is gone.
+  const recipe = (await readDevServers(body.sandboxId)).get(port)
+  if (!recipe) return Response.json({ state: "no-recipe" })
+
+  return Response.json(await restoreDevServer(sandbox, recipe))
 }
