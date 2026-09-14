@@ -37,6 +37,7 @@ import {
  * No catch-up for a missed day. A refill to a fixed level has nothing to catch
  * up on — the next run puts the user exactly where the missed one would have.
  */
+// maxDuration configures the timeout for this Vercel function.
 export const maxDuration = 60
 
 /**

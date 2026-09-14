@@ -11,7 +11,8 @@ import { monitorAgent, stopAgent } from "./_lib/monitor"
 import { startJobExecution, finalizeScheduledRun, failScheduledRun } from "./_lib/scheduled"
 import { finalizeInteractiveChat, markChatError } from "./_lib/interactive"
 
-// Vercel Pro plan allows up to 5 minutes for cron jobs
+// maxDuration configures the timeout for this Vercel function. Vercel Pro
+// plan allows up to 5 minutes for cron jobs.
 export const maxDuration = 300
 
 // =============================================================================

@@ -5,7 +5,8 @@ import { PATHS } from "@/lib/constants"
 import { createGitOperationMessage } from "@/lib/db/git-messages"
 import { requireGitHubAuth, isGitHubAuthError, verifySandboxOwnership, forbidden } from "@/lib/db/api-helpers"
 
-// Squash operation timeout - 60 seconds
+// maxDuration configures the timeout for this Vercel function. Squash
+// operation timeout - 60 seconds.
 export const maxDuration = 60
 
 interface SquashRequestBody {

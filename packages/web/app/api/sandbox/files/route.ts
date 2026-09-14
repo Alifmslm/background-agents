@@ -7,6 +7,7 @@ import { IMAGE_MIME_TYPES } from "@/lib/file-preview/types"
 import { LIST_SERVERS_COMMAND, recordDevServers, splitListOutput } from "@/lib/dev-servers"
 import { internalError, badRequest, notFound, requireSandboxOwner } from "@/lib/db/api-helpers"
 
+// maxDuration configures the timeout for this Vercel function.
 export const maxDuration = 30
 
 /**

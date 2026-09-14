@@ -10,8 +10,9 @@ import {
   type TempBranchPushResult,
 } from "@/lib/git/sandbox-git-ops"
 
-// Booting a stopped sandbox (ensureSandboxStarted) can take up to ~120s, so
-// give working-tree actions headroom on top of the git work itself.
+// maxDuration configures the timeout for this Vercel function. Booting a
+// stopped sandbox (ensureSandboxStarted) can take up to ~120s, so give
+// working-tree actions headroom on top of the git work itself.
 export const maxDuration = 120
 
 /**

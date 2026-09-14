@@ -4,6 +4,7 @@ import { ensureSandboxStarted } from "@/lib/sandbox"
 import { getSandboxOrExpired } from "@/lib/sandbox-lifecycle"
 import { internalError, badRequest, requireSandboxOwner } from "@/lib/db/api-helpers"
 
+// maxDuration configures the timeout for this Vercel function.
 export const maxDuration = 60
 
 /**

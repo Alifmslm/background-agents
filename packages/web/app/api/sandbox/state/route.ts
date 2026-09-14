@@ -4,8 +4,9 @@ import { getSandboxOrExpired, passiveReadGate } from "@/lib/sandbox-lifecycle"
 import { checkPort, restoreDevServer } from "@/lib/dev-servers"
 import { badRequest, serverConfigError, requireSandboxOwner } from "@/lib/db/api-helpers"
 
-// Restoring a dev server boots the sandbox and then waits for the port to come
-// up, so this needs more headroom than a plain lifecycle probe.
+// maxDuration configures the timeout for this Vercel function. Restoring a
+// dev server boots the sandbox and then waits for the port to come up, so
+// this needs more headroom than a plain lifecycle probe.
 export const maxDuration = 60
 
 /**
