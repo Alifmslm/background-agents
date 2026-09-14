@@ -231,6 +231,14 @@ describe("buildWaitCommand", () => {
     expect(buildWaitCommand(4000, "123")).toContain("[ -d /proc/123 ]")
   })
 
+  it("requires an HTTP response, not just a bound port", () => {
+    // Vite and Next bind the port and only then pre-bundle, so a bind-only
+    // check calls the server ready while it still can't serve anything — the
+    // panel swaps in an iframe that sits blank for the whole build.
+    const cmd = buildWaitCommand(4000, "123")
+    expect(cmd).toContain("curl -s -o /dev/null --max-time 3 http://127.0.0.1:4000/")
+  })
+
   it("reports DEAD rather than probing /proc itself when the pid is unknown", () => {
     // `[ -d /proc/ ]` is always true, which would report every dead server as
     // still starting.

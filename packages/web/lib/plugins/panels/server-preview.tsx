@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Globe } from "lucide-react"
 import type { PanelPlugin, PanelProps, PreviewItem } from "../types"
 import { PanelState } from "./PanelState"
@@ -15,6 +16,17 @@ interface ServerStateResponse {
 function ServerPreviewComponent({ item, scale = 1, sandboxId, explicitStart, onRefresh }: PanelProps) {
   const url = item.type === "server" ? item.url : ""
   const port = item.type === "server" ? item.port : null
+
+  // Declared before any early return so the hook order stays fixed.
+  const [frameLoaded, setFrameLoaded] = useState(false)
+
+  // Safety net for the overlay below: a server that accepts the connection but
+  // never finishes responding would never fire `load`, and the cover would hide
+  // the frame forever. Uncover after a while regardless.
+  useEffect(() => {
+    const timer = setTimeout(() => setFrameLoaded(true), 30_000)
+    return () => clearTimeout(timer)
+  }, [])
 
   // Probe the sandbox before embedding the iframe, so a stopped/expired sandbox
   // shows the shared PanelState (with a refresh/start button) instead of a
@@ -119,7 +131,7 @@ function ServerPreviewComponent({ item, scale = 1, sandboxId, explicitStart, onR
     : {}
 
   return (
-    <div className="h-full w-full overflow-hidden">
+    <div className="relative h-full w-full overflow-hidden">
       <iframe
         src={url}
         className="border-0 bg-white"
@@ -129,7 +141,18 @@ function ServerPreviewComponent({ item, scale = 1, sandboxId, explicitStart, onR
           ...iframeStyle,
         }}
         title="Live preview"
+        onLoad={() => setFrameLoaded(true)}
       />
+      {/* A dev server answers HTTP well before it can serve the app — Vite and
+          Next pre-bundle on first request — so the frame can sit blank for a
+          long time after we call the server ready. Cover it until the frame
+          reports it finished loading, otherwise "still building" is
+          indistinguishable from "broken". */}
+      {!frameLoaded && (
+        <div className="absolute inset-0 bg-card">
+          <PanelState status="loading" message="Loading preview…" />
+        </div>
+      )}
     </div>
   )
 }

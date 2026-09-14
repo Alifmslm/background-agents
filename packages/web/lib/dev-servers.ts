@@ -379,9 +379,16 @@ export function buildLaunchCommand(recipe: DevServerRecipe): string {
  * cold Next build routinely outlasts this window) must not read as a failure.
  */
 export function buildWaitCommand(port: number, pid: string | null): string {
+  // Waiting for the socket alone is not enough. Vite and Next bind the port
+  // almost immediately and only then pre-bundle dependencies, so a bind-only
+  // check reports "ready" while the server still can't serve anything — the
+  // panel then swaps in an iframe that renders blank for as long as the build
+  // takes. Ask for an actual HTTP response instead; curl is in the image.
+  const serves =
+    `curl -s -o /dev/null --max-time 3 http://127.0.0.1:${port}/ 2>/dev/null`
   return (
     `i=0; while [ $i -lt ${START_TIMEOUT_SECONDS} ]; do ` +
-    `${listenTest(port)} && { echo READY; exit 0; }; ` +
+    `${listenTest(port)} && ${serves} && { echo READY; exit 0; }; ` +
     `sleep 1; i=$((i + 1)); done; ` +
     (pid ? `[ -d /proc/${pid} ] && echo STARTING || echo DEAD` : `echo DEAD`)
   )
