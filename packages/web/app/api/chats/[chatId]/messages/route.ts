@@ -143,7 +143,7 @@ export async function POST(
       state,
     })
     if (ensured instanceof Response) return ensured
-    const { sandbox, sandboxId, branch, previewUrlPattern, createdSandbox } = ensured
+    const { sandbox, sandboxId, branch, previewUrlPattern, createdSandbox, branchRestored } = ensured
 
     const repoPath = `${PATHS.SANDBOX_HOME}/project`
 
@@ -156,6 +156,7 @@ export async function POST(
       branch,
       githubToken,
       createdSandbox,
+      branchRestored,
     })
     if (pull instanceof Response) return pull
     const { pullConflictNote } = pull

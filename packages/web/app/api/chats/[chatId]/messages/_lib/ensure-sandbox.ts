@@ -30,6 +30,17 @@ export interface EnsuredSandbox {
   branch: string | null
   previewUrlPattern: string | null
   createdSandbox: boolean
+  /**
+   * Set only when `createdSandbox` is true and a branch restore was attempted.
+   * `true` — fetched the branch's real prior state from remote.
+   * `false` — the restore fetch/checkout failed and fell back to a fresh
+   * branch off `baseBranch`, which can be *behind* the branch's real remote
+   * tip. Callers that skip a pre-run pull for "freshly created" sandboxes
+   * must not do so when this is `false`.
+   * `undefined` — no restore was attempted (first-time creation, or
+   * NEW_REPOSITORY with nothing to restore).
+   */
+  branchRestored?: boolean
 }
 
 /**
@@ -84,6 +95,7 @@ export async function ensureSandboxForChat(params: {
 
   // ── Otherwise create one (first-time *or* recreation — same path) ──────
   let createdSandbox = false
+  let branchRestored: boolean | undefined
   if (!sandbox) {
     const isNewRepo = chat.repo === NEW_REPOSITORY || chat.repo === "__new__"
 
@@ -125,6 +137,7 @@ export async function ensureSandboxForChat(params: {
     branch = created.branch
     previewUrlPattern = created.previewUrlPattern ?? null
     createdSandbox = true
+    branchRestored = created.branchRestored
     state.sandboxId = sandboxId
     state.branch = branch
     state.previewUrlPattern = previewUrlPattern
@@ -157,5 +170,5 @@ export async function ensureSandboxForChat(params: {
     await installSkillsForRepo(sandbox, userId, chat.repo)
   }
 
-  return { sandbox, sandboxId: sandboxId as string, branch, previewUrlPattern, createdSandbox }
+  return { sandbox, sandboxId: sandboxId as string, branch, previewUrlPattern, createdSandbox, branchRestored }
 }

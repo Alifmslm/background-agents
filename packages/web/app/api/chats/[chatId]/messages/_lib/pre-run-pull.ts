@@ -8,7 +8,11 @@ import type { ChatRecord } from "./types"
  * Auto-pull the branch before the agent runs so commits pushed from elsewhere
  * (local checkout, another chat, the GitHub UI) are present in the sandbox. A
  * freshly created sandbox was just cloned, so it's already current — callers
- * skip it there by not satisfying the guard below.
+ * skip it there by not satisfying the guard below. The one exception is a
+ * recreated sandbox whose branch restore fell back to a fresh branch off
+ * `baseBranch` (`branchRestored === false`, see {@link EnsuredSandbox}) — that
+ * "fresh" clone can be behind the branch's real remote tip, so it still needs
+ * the pull.
  *
  * Returns either:
  *  - a `Response` (409 PULL_CONFLICT) when *this* send started a merge that
@@ -28,12 +32,13 @@ export async function runPreRunPull(params: {
   branch: string | null
   githubToken: string | null
   createdSandbox: boolean
+  branchRestored?: boolean
 }): Promise<{ pullConflictNote: string } | Response> {
-  const { sandbox, repoPath, chat, chatId, branch, githubToken, createdSandbox } = params
+  const { sandbox, repoPath, chat, chatId, branch, githubToken, createdSandbox, branchRestored } = params
 
   let pullConflictNote = ""
   if (
-    !createdSandbox &&
+    (!createdSandbox || branchRestored === false) &&
     branch &&
     chat.repo !== NEW_REPOSITORY &&
     chat.repo !== "__new__" &&

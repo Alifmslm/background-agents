@@ -149,6 +149,33 @@ describe("ensureSandboxForChat — deleted sandbox recreation", () => {
     expect(readyUpdate()!.data).toHaveProperty("sessionId", null)
   })
 
+  it("surfaces branchRestored so callers can tell a stale-fallback restore from a real one", async () => {
+    // createSandboxForChat mock defaults to branchRestored: false (the
+    // fell-back-to-baseBranch case) — this must not get lost on the way out,
+    // since runPreRunPull relies on it to know the sandbox may be stale.
+    const { params, daytonaGet } = setup({ sandboxId: "old-sbx", branch: "agent/work" })
+    daytonaGet.mockRejectedValue(new Error("404 not found"))
+
+    const result = await ensureSandboxForChat(params)
+
+    expect(result).not.toBeInstanceOf(Response)
+    expect((result as { branchRestored?: boolean }).branchRestored).toBe(false)
+
+    createSandboxForChat.mockResolvedValueOnce({
+      sandbox: freshSandbox,
+      sandboxId: "sbx-new",
+      branch: "agent/work",
+      previewUrlPattern: null,
+      repoName: "project",
+      branchRestored: true,
+    })
+    const { params: params2, daytonaGet: daytonaGet2 } = setup({ sandboxId: "old-sbx", branch: "agent/work" })
+    daytonaGet2.mockRejectedValue(new Error("404 not found"))
+
+    const result2 = await ensureSandboxForChat(params2)
+    expect((result2 as { branchRestored?: boolean }).branchRestored).toBe(true)
+  })
+
   it("recreates a deleted LOCAL (NEW_REPOSITORY) sandbox instead of erroring", async () => {
     // Regression: local chats used to get SANDBOX_NOT_FOUND on the first
     // message after a deletion, succeeding only on the retry.
