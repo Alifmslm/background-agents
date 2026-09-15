@@ -28,6 +28,7 @@ import {
 import { filterSlashCommandsWithConflict, filterSingleCommand, CREATE_REPO_COMMAND } from "@background-agents/common"
 import type { SlashCommandType } from "@/components/SlashCommandMenu"
 import { useFileUpload } from "@/lib/hooks/useFileUpload"
+import { isModKeyPressed } from "@/lib/keyboard"
 
 interface UseChatComposerArgs {
   chat: Chat | null
@@ -332,8 +333,8 @@ export function useChatComposer({
       return
     }
 
-    // Option/Alt+Enter, Command/Meta+Enter, or Ctrl+Enter to branch and send
-    if (e.key === "Enter" && (e.altKey || e.metaKey || e.ctrlKey)) {
+    // Option/Alt+Enter, Command/Meta+Enter, or Ctrl+Enter (non-macOS only) to branch and send
+    if (e.key === "Enter" && (e.altKey || isModKeyPressed(e))) {
       e.preventDefault()
       handleBranchSend()
       return

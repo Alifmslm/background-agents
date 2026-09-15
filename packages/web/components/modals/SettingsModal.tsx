@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { focusChatPrompt } from "@/components/ui/modal-header"
 import { useDragToClose } from "@/lib/hooks/useDragToClose"
 import { useElectron, type LicenseDetectResult } from "@/lib/hooks/useElectron"
+import { isModKeyPressed } from "@/lib/keyboard"
 import type { Settings, Theme, Agent, Credentials, CredentialFlags, CustomEndpoint } from "@/lib/types"
 import { agentModels, resolveAgent, getDefaultModelForAgent } from "@/lib/types"
 import {
@@ -362,7 +363,7 @@ export function SettingsModal({ open, onClose, settings, credentialFlags, onSave
 
   // Cmd/Ctrl+Enter closes (and thereby saves) the modal.
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    if (e.key === "Enter" && isModKeyPressed(e)) {
       e.preventDefault()
       handleClose()
     }

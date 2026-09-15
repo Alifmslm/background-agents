@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { useModals } from "@/lib/contexts"
 import { useSpeechRecognition } from "@/lib/hooks/useSpeechRecognition"
 import { useCreditWarning } from "@/lib/hooks/useCreditWarning"
+import { isModKeyPressed } from "@/lib/keyboard"
 import type { Chat, Agent, CredentialFlags, PendingFile } from "@/lib/types"
 import { NEW_REPOSITORY } from "@/lib/types"
 import { basename } from "@/lib/format"
@@ -252,7 +253,7 @@ export function ChatInput({
   const [branchModifierHeld, setBranchModifierHeld] = useState(false)
   useEffect(() => {
     const sync = (e: KeyboardEvent) => {
-      setBranchModifierHeld(e.metaKey || e.altKey || e.ctrlKey)
+      setBranchModifierHeld(e.altKey || isModKeyPressed(e))
     }
     const clear = () => setBranchModifierHeld(false)
     window.addEventListener("keydown", sync)
@@ -319,7 +320,7 @@ export function ChatInput({
   // branching is possible), send to a new branch instead of the current chat.
   const handleSendWithSpeechStop = useCallback((e?: React.MouseEvent) => {
     if (speech.isListening) speech.stop()
-    if ((e?.metaKey || e?.altKey || e?.ctrlKey) && canBranch && onBranchSend) {
+    if (e && (e.altKey || isModKeyPressed(e)) && canBranch && onBranchSend) {
       onBranchSend()
       return
     }
