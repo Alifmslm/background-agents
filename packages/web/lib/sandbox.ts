@@ -276,8 +276,17 @@ export async function createSandboxForChat(
         await git.fetchBranch(repoPath, newBranch, githubToken!)
         await git.checkoutBranch(repoPath, newBranch)
         branchRestored = true
-      } catch {
-        // Branch doesn't exist on remote, create fresh from baseBranch
+      } catch (err) {
+        // Could genuinely mean the branch doesn't exist on remote yet (never
+        // pushed) — but could also be a transient fetch/checkout failure that
+        // leaves us falling back to a stale `baseBranch` tip instead of the
+        // branch's real prior state. Log it so that divergence (silently
+        // committing on top of a stale tip, then failing to push later with
+        // "non-fast-forward") is diagnosable instead of vanishing here.
+        console.error(
+          `[sandbox] Branch restore failed for "${newBranch}" (falling back to baseBranch "${baseBranch}"):`,
+          err
+        )
         await git.createBranch(repoPath, newBranch)
         await git.checkoutBranch(repoPath, newBranch)
         branchRestored = false
